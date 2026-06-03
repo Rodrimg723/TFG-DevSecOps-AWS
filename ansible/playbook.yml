@@ -1,0 +1,125 @@
+---
+- name: DevSecOps Infrastructure Setup
+  hosts: webservers
+  become: true
+  vars:
+    project_dir: /opt/devsecops
+
+  tasks:
+    - name: Update apt cache and upgrade packages
+      apt:
+        update_cache: yes
+        upgrade: dist
+
+    - name: Install required packages
+      apt:
+        name:
+          - curl
+          - git
+          - htop
+          - net-tools
+          - unzip
+          - ca-certificates
+          - gnupg
+        state: present
+
+    # --- Security Hardening ---
+
+    - name: Configure UFW (Deny incoming except ssh, http, https)
+      ufw:
+        rule: allow
+        name: '{{ item }}'
+      loop:
+        - OpenSSH
+        - 'Nginx Full'
+      ignore_errors: true # Ignore if Nginx profile missing
+
+    - name: Allow specific ports in UFW
+      ufw:
+        rule: allow
+        port: '{{ item }}'
+        proto: tcp
+      loop:
+        - '22'
+        - '80'
+        - '443'
+
+    - name: Enable UFW
+      ufw:
+        state: enabled
+        policy: deny
+
+    - name: Configure SSH (Disable Password Auth)
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PasswordAuthentication'
+        line: 'PasswordAuthentication no'
+      notify: Restart SSH
+
+    # --- Docker Installation ---
+
+    - name: Create directory for Docker keyrings
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Download Docker GPG key
+      get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: '0644'
+        force: true
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+        update_cache: yes
+
+    - name: Install Docker Engine and Plugin
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+
+    - name: Add ubuntu user to docker group
+      user:
+        name: ubuntu
+        groups: docker
+        append: yes
+
+    # --- App Deployment ---
+
+    - name: Ensure project directory exists
+      file:
+        path: "{{ project_dir }}"
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+
+    - name: Copy Docker files to server
+      copy:
+        src: ../docker/
+        dest: "{{ project_dir }}/"
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
+
+    - name: Start Docker Compose services
+      shell: docker compose up -d
+      args:
+        chdir: "{{ project_dir }}"
+      register: docker_output
+      changed_when: "'Running' not in docker_output.stdout"
+
+  handlers:
+    - name: Restart SSH
+      service:
+        name: ssh
+        state: restarted

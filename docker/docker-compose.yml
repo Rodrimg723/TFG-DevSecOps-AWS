@@ -1,0 +1,107 @@
+version: '3.8'
+
+services:
+  # Reverse Proxy
+  traefik:
+    image: traefik:latest
+    restart: unless-stopped
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--accesslog=true"
+      - "--accesslog.filepath=/var/log/traefik/access.log"
+      - "--metrics.prometheus=true"
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "./security/crowdsec:/var/log/traefik" # Shared logs
+    networks:
+      - web
+    environment:
+      - DOCKER_API_VERSION=1.44
+
+  # Security: CrowdSec (IDS)
+  crowdsec:
+    image: crowdsecurity/crowdsec
+    restart: unless-stopped
+    environment:
+      - COLLECTIONS=crowdsecurity/traefik crowdsecurity/http-cve
+    volumes:
+      - ./security/crowdsec/acquis.yaml:/etc/crowdsec/acquis.yaml
+      - ./security/crowdsec:/var/log/traefik:ro
+      - crowdsec-db:/var/lib/crowdsec/data
+      - crowdsec-config:/etc/crowdsec
+    networks:
+      - web
+
+  # Security: Traefik Bouncer (IPS)
+  bouncer-traefik:
+    image: fbonalair/traefik-crowdsec-bouncer
+    restart: unless-stopped
+    environment:
+      - CROWDSEC_AGENT_HOST=crowdsec:8080
+      - CROWDSEC_BOUNCER_API_KEY=my-secret-key # We will register this via Ansible
+      - CROWDSEC_BOUNCER_SCHEME=http
+    networks:
+      - web
+
+  # Observability: Prometheus
+  prometheus:
+    image: prom/prometheus
+    restart: unless-stopped
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - web
+
+  # Observability: Grafana
+  grafana:
+    image: grafana/grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-storage:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards
+    networks:
+      - web
+
+  # Demo Target: DVWA
+  dvwa:
+    image: vulnerables/web-dvwa
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dvwa.rule=PathPrefix(`/dvwa`)" # Exposed at /dvwa
+      - "traefik.http.routers.dvwa.entrypoints=web"
+      - "traefik.http.middlewares.dvwa-strip.stripprefix.prefixes=/dvwa"
+      - "traefik.http.middlewares.crowdsec.forwardauth.address=http://bouncer-traefik:8080/api/v1/forwardAuth"
+      - "traefik.http.middlewares.crowdsec.forwardauth.trustForwardHeader=true"
+      - "traefik.http.routers.dvwa.middlewares=crowdsec,dvwa-strip"
+    networks:
+      - web
+
+  # Verification Service
+  whoami:
+    image: traefik/whoami
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.whoami.rule=PathPrefix(`/whoami`)"
+      - "traefik.http.routers.whoami.entrypoints=web"
+    networks:
+      - web
+
+volumes:
+  crowdsec-db:
+  crowdsec-config:
+  grafana-storage:
+
+networks:
+  web:
+    driver: bridge

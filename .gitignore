@@ -1,0 +1,52 @@
+# --- DevSecOps TFG .gitignore ---
+
+# Claves de Seguridad y Credenciales (¡CRÍTICO!)
+*.pem
+*.key
+*.pub
+id_rsa
+vockey
+credentials
+aws_credentials
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+.terraform.lock.hcl
+*.log
+tf.log
+
+# Ansible
+*.retry
+ansible-debug.log
+
+# Python
+.venv/
+venv/
+ENV/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Docker / Entornos
+.env
+docker-compose.override.yml
+
+# Archivos de Sistema y Editores
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+*~
+.DS_Store
+Thumbs.db
