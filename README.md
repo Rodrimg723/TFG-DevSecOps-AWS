@@ -171,12 +171,21 @@ La organización del código sigue los estándares de la industria para la gesti
 El despliegue está diseñado bajo la filosofía **Zero-Touch**. Sigue estos pasos secuenciales:
 
 <details>
-<summary>📋 Requisitos Previos</summary>
+<summary>📋 Requisitos Previos y Configuración de AWS</summary>
 
-* Tener configuradas las credenciales de AWS (`aws configure` o variables de entorno de AWS Academy).
-* Terraform instalado en tu máquina local.
-* Ansible instalado en tu máquina local o en WSL.
-* Clave privada SSH (`vockey.pem` / `vockey` o `labsuser.pem`) accesible.
+Para que este despliegue funcione correctamente, debes cumplir con los siguientes requisitos en tu máquina local (o WSL):
+
+1. **Cuenta y Credenciales de AWS**:
+   - Necesitas acceso a una cuenta de AWS (ya sea tu cuenta personal o el entorno académico **AWS Academy / Learner Lab**).
+   - Configura tus credenciales localmente ejecutando `aws configure` o exportando las variables de entorno temporal de tu laboratorio (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`).
+2. **Par de Claves SSH**:
+   - El archivo `terraform/main.tf` está preconfigurado para buscar un par de claves en AWS llamado `"vockey"` (la clave estándar de AWS Academy).
+   - **Si usas una cuenta propia de AWS**: Crea o importa un par de claves en la consola de AWS (en la región `us-east-1`) y edita el campo `key_name` en `terraform/main.tf` para poner el nombre de tu clave.
+   - Descarga tu archivo de clave privada (`.pem`) y guárdalo en tu máquina. Asegúrate de ajustar la ruta de este archivo en `ansible/inventory.ini` (que por defecto apunta a `~/.ssh/labsuser.pem`).
+3. **Herramientas de Software**:
+   - Terraform instalado en la máquina local.
+   - Ansible instalado en tu máquina local o dentro de WSL (Windows Subsystem for Linux).
+   - Python 3 instalado para poder ejecutar las pruebas de penetración automatizadas.
 </details>
 
 ### Paso 1: Infraestructura como Código (Terraform)
