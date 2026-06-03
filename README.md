@@ -132,31 +132,35 @@ sequenceDiagram
     Traefik->>Bouncer: ForwardAuth: ¿Esta IP está autorizada?
     Bouncer->>CrowdSec: Consulta tabla de decisiones
     CrowdSec-->>Bouncer: IP Bloqueada por CrowdSec (Ban activo)
-    Bouncer-->>Traefik: Rechazado (HTTP 403 Forbidden)
-    Traefik-->>Atacante: Bloqueo instantáneo (La petición nunca llega a la App)
+    Bouncer->>Traefik: Rechazado (HTTP 403 Forbidden)
 ```
 
 ---
 
 ## 📂 Estructura del Repositorio
 
-La organización del código sigue los estándares de la industria para arquitecturas IaC:
+La organización del código sigue los estándares de la industria para la gestión de proyectos de infraestructura y seguridad:
 
 ```bash
 .
 ├── ansible/                  # Automatización de la configuración del SO y Docker
 │   ├── inventory.ini         # Definición de hosts de destino (IPs del servidor)
-│   └── playbook.yml          # Tareas de aprovisionamiento, seguridad y despliegue
+│   └── playbook.yml          # Tareas de aprovisionamiento, hardening y despliegue
 ├── terraform/                # Definición de Infraestructura como Código (IaC)
 │   ├── main.tf               # Aprovisionamiento de VPC, Security Groups e Instancia EC2
 │   ├── outputs.tf            # Variables de salida (IP Pública de la instancia)
 │   └── provider.tf           # Configuración del proveedor de AWS
 ├── docker/                   # Definición y configuración de contenedores microservicios
 │   ├── docker-compose.yml    # Orquestación de Traefik, CrowdSec, DVWA y Observabilidad
-│   ├── security/             # Configuraciones específicas de CrowdSec y certificados
+│   ├── security/             # Configuraciones específicas de CrowdSec (logs, acquis)
 │   └── observability/        # Configuraciones y dashboards de Prometheus y Grafana
+├── scripts/                  # Scripts auxiliares y herramientas de pentesting
+│   ├── attack.py             # Script de simulación de ataques multihilo (User-Agent Nikto)
+│   └── setup_wsl.sh          # Ayudante para preparar el entorno en Windows (WSL)
 ├── docs/                     # Documentación técnica, guías y recursos gráficos
 │   └── images/               # Recursos gráficos y multimedia del README
+├── .gitignore                # Reglas de exclusión de Git (prevención de fugas de claves)
+├── LICENSE                   # Licencia de código abierto MIT
 └── README.md                 # Guía general de presentación
 ```
 
@@ -172,7 +176,7 @@ El despliegue está diseñado bajo la filosofía **Zero-Touch**. Sigue estos pas
 * Tener configuradas las credenciales de AWS (`aws configure` o variables de entorno de AWS Academy).
 * Terraform instalado en tu máquina local.
 * Ansible instalado en tu máquina local o en WSL.
-* Clave privada SSH (`vockey.pem` / `vockey`) para conectar con la instancia AWS.
+* Clave privada SSH (`vockey.pem` / `vockey` o `labsuser.pem`) accesible.
 </details>
 
 ### Paso 1: Infraestructura como Código (Terraform)
@@ -190,24 +194,35 @@ Edita el archivo `ansible/inventory.ini` reemplazando la dirección IP por la ob
 cd ../ansible
 ansible-playbook -i inventory.ini playbook.yml
 ```
-Este script configurará las dependencias, instalará Docker, endurecerá el SSH contra ataques de fuerza bruta y levantará el firewall interno `ufw` del host permitiendo solo los puertos web seguros.
+Este script configurará las dependencias, instalará Docker, endurecerá el SSH, y levantará el firewall local. Además, **de forma 100% automatizada**, recuperará la IP del servidor para configurar las reglas de dominio dinámico en Traefik y registrará el CrowdSec Bouncer con una clave estática segura.
 
 ### Paso 3: Verificación y Servicios Activos
-Los servicios se levantarán de manera automática a través del playbook de Ansible en contenedores Docker aislados. Puedes verificar que la aplicación víctima está activa accediendo a:
-* **DVWA**: `http://<IP-PUBLICA>/dvwa`
-* **Grafana**: `http://<IP-PUBLICA>:3000` (Credenciales por defecto: `admin` / `admin`)
-* **whoami (Validación)**: `http://<IP-PUBLICA>/whoami`
+Los servicios se levantarán de manera automática a través del playbook de Ansible en contenedores Docker aislados. Puedes verificar que la aplicación víctima está activa accediendo a las siguientes URLs:
+* **DVWA (Segura con HTTPS)**: `https://<IP-PUBLICA>.nip.io/dvwa`
+* **whoami (Validación HTTPS)**: `https://<IP-PUBLICA>.nip.io/whoami`
+* **Grafana (Monitoreo)**: `http://<IP-PUBLICA>:3000` (Credenciales: `admin` / `admin`)
+
+*Nota: La primera vez que accedas a la URL HTTPS, Let's Encrypt puede tardar entre 10 y 30 segundos en negociar el certificado digital. Si ves un error de carga, espera unos segundos y refresca.*
 
 ---
 
 ## 🔬 Demostración de Seguridad en Acción
 
 ### 1. Simulación de un ataque web
-Para verificar que el sistema de detección y prevención activa (CrowdSec IPS) funciona, podemos simular un ataque de escaneo web rápido contra la aplicación víctima (DVWA) desde una máquina externa:
+Para verificar que el sistema de detección y prevención activa (CrowdSec IPS) funciona, podemos simular un ataque de escaneo web rápido contra la aplicación víctima (DVWA) desde una máquina externa.
 
+Puedes hacerlo de dos formas:
+
+**Opción A: Ejecutar el script Python automatizado (Recomendada)**
+Ejecuta el script proporcionado en la carpeta de herramientas pasándole la IP pública del servidor:
 ```bash
-# Simular un ataque web usando curl automatizado (escaneo de directorios vulnerables)
-for i in {1..30}; do curl -s -o /dev/null -w "%{http_code}\n" http://<IP-PUBLICA>/dvwa/?id=../../etc/passwd; done
+python scripts/attack.py <IP-PUBLICA>
+```
+
+**Opción B: Mediante bucle curl en Linux**
+```bash
+# Simular un ataque web usando curl inyectando patrones maliciosos en la URL
+for i in {1..30}; do curl -H "Host: <IP-PUBLICA>.nip.io" -s -o /dev/null -w "%{http_code}\n" "http://<IP-PUBLICA>/dvwa/?id=../../etc/passwd"; done
 ```
 
 ### 2. Comportamiento esperado
